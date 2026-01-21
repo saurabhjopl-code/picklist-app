@@ -1,31 +1,31 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Pick List Generator</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8">
+  <title>Pick List Generator V2</title>
+  <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
-<h1>📦 Pick List Generator</h1>
+<h1>📦 Pick List Generator – V2</h1>
 
 <div class="upload-box">
-  <label>
-    Order File (SKU + Order Units)
-    <input type="file" id="orderFile" accept=".xlsx,.xls" />
-  </label>
-
-  <label>
-    Uniware Stock File
-    <input type="file" id="stockFile" accept=".xlsx,.xls" />
-  </label>
-
-  <button onclick="generatePickList()">Generate Pick List</button>
-  <button onclick="exportExcel()">Export Excel</button>
+  <input type="file" id="saleFile" accept=".xlsx">
+  <input type="file" id="uniwareFile" accept=".xlsx">
+  <input type="file" id="binFile" accept=".xlsx">
+  <button onclick="generate()">Generate</button>
+  <button onclick="exportExcel()">Export</button>
 </div>
 
-<table id="resultTable">
+<div class="filters">
+  <input placeholder="Filter SKU" oninput="applyFilters()" id="fSku">
+  <input placeholder="Filter Style ID" oninput="applyFilters()" id="fStyle">
+  <input placeholder="Filter Size" oninput="applyFilters()" id="fSize">
+  <input placeholder="Filter BIN" oninput="applyFilters()" id="fBin">
+</div>
+
+<table>
   <thead>
     <tr>
       <th>SKU</th>
@@ -35,7 +35,7 @@
       <th>Unit</th>
     </tr>
   </thead>
-  <tbody></tbody>
+  <tbody id="tbody"></tbody>
 </table>
 
 <script src="app.js"></script>
