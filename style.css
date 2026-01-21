@@ -10,13 +10,18 @@ body {
   margin-bottom: 10px;
   display: flex;
   gap: 12px;
-  align-items: center;
+  align-items: flex-end;
 }
 
 label {
   display: flex;
   flex-direction: column;
   font-size: 13px;
+}
+
+.status {
+  font-size: 11px;
+  color: green;
 }
 
 input, select, button {
