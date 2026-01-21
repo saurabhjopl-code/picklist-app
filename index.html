@@ -2,28 +2,31 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Pick List Generator V3.2</title>
+  <title>Pick List Generator V3.2.1</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
-<h1>📦 Pick List Generator – MP Wise (V3.2)</h1>
+<h1>📦 Pick List Generator – MP Wise (V3.2.1)</h1>
 
 <div class="upload-box">
   <label>
     Sale Orders (CSV / Excel)
     <input type="file" id="saleFile" accept=".xlsx,.xls,.csv">
+    <span class="status" id="saleStatus"></span>
   </label>
 
   <label>
     Uniware Stock (CSV / Excel)
     <input type="file" id="uniwareFile" accept=".xlsx,.xls,.csv">
+    <span class="status" id="uniwareStatus"></span>
   </label>
 
   <label>
     Bin Data – Inward Sheet (CSV / Excel)
     <input type="file" id="binFile" accept=".xlsx,.xls,.csv">
+    <span class="status" id="binStatus"></span>
   </label>
 
   <button onclick="generate()">Generate</button>
