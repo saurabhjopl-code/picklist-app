@@ -2,27 +2,43 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Pick List Generator V3.1</title>
+  <title>Pick List Generator V3.2</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
-<h1>📦 Pick List Generator – MP Wise (V3.1)</h1>
+<h1>📦 Pick List Generator – MP Wise (V3.2)</h1>
 
 <div class="upload-box">
-  <input type="file" id="saleFile" accept=".xlsx">
-  <input type="file" id="uniwareFile" accept=".xlsx">
-  <input type="file" id="binFile" accept=".xlsx">
+  <label>
+    Sale Orders (CSV / Excel)
+    <input type="file" id="saleFile" accept=".xlsx,.xls,.csv">
+  </label>
+
+  <label>
+    Uniware Stock (CSV / Excel)
+    <input type="file" id="uniwareFile" accept=".xlsx,.xls,.csv">
+  </label>
+
+  <label>
+    Bin Data – Inward Sheet (CSV / Excel)
+    <input type="file" id="binFile" accept=".xlsx,.xls,.csv">
+  </label>
+
   <button onclick="generate()">Generate</button>
   <button onclick="exportExcel()">Export</button>
 </div>
 
-<div class="filters">
-  <input placeholder="Filter SKU" id="fSku" oninput="applyFilters()">
-  <input placeholder="Filter Style ID" id="fStyle" oninput="applyFilters()">
-  <input placeholder="Filter Size" id="fSize" oninput="applyFilters()">
-  <input placeholder="Filter BIN" id="fBin" oninput="applyFilters()">
+<div class="sort-box">
+  <label>Sort By:</label>
+  <select id="sortBy" onchange="applySort()">
+    <option value="">Default</option>
+    <option value="SKU">SKU</option>
+    <option value="Style">Style ID</option>
+    <option value="Size">Size</option>
+    <option value="BIN">BIN</option>
+  </select>
 </div>
 
 <div id="mpTabs" class="tabs"></div>
