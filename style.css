@@ -1,16 +1,16 @@
 body {
-  font-family: Arial;
+  font-family: Arial, sans-serif;
   background: #f4f4f4;
   padding: 20px;
 }
 
-.upload-box, .sort-box {
+.upload-box {
   background: #fff;
   padding: 10px;
-  margin-bottom: 10px;
   display: flex;
   gap: 12px;
   align-items: flex-end;
+  margin-bottom: 10px;
 }
 
 label {
@@ -24,14 +24,13 @@ label {
   color: green;
 }
 
-.msg {
-  margin-bottom: 10px;
-  font-size: 13px;
-  font-weight: bold;
+button {
+  padding: 6px 12px;
 }
 
-input, select, button {
-  padding: 6px;
+.msg {
+  font-weight: bold;
+  margin-bottom: 10px;
 }
 
 .tabs {
@@ -54,8 +53,8 @@ input, select, button {
 
 table {
   width: 100%;
-  border-collapse: collapse;
   background: #fff;
+  border-collapse: collapse;
 }
 
 th, td {
