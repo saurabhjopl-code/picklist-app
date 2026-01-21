@@ -2,64 +2,49 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Pick List Generator – MP Wise</title>
+  <title>Pick List Generator – Stepwise</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
-<h1>📦 Pick List Generator – MP Wise</h1>
+<h1>📦 Pick List Generator – Stepwise Debug Mode</h1>
 
-<div class="upload-box">
-  <label>
-    Sale Orders (CSV / Excel)
+<div class="upload">
+  <label>Sale Orders
     <input type="file" id="saleFile" accept=".csv,.xlsx,.xls">
-    <span class="status" id="saleStatus"></span>
   </label>
 
-  <label>
-    Uniware Stock (CSV / Excel)
+  <label>Uniware Stock
     <input type="file" id="uniwareFile" accept=".csv,.xlsx,.xls">
-    <span class="status" id="uniwareStatus"></span>
   </label>
 
-  <label>
-    Bin Data – Inward Sheet (CSV / Excel)
+  <label>Bin Data (Inward)
     <input type="file" id="binFile" accept=".csv,.xlsx,.xls">
-    <span class="status" id="binStatus"></span>
   </label>
 
   <button onclick="generate()">Generate</button>
-  <button onclick="exportExcel()">Export</button>
 </div>
 
-<div class="sort-box">
-  Sort By:
-  <select id="sortBy" onchange="applySort()">
-    <option value="">Default</option>
-    <option value="SKU">SKU</option>
-    <option value="Style">Style</option>
-    <option value="Size">Size</option>
-    <option value="BIN">BIN</option>
-  </select>
-</div>
+<div id="msg"></div>
 
-<div id="msg" class="msg"></div>
+<h2>STEP 1 — Master Stock</h2>
+<table><thead><tr><th>SKU</th><th>Bin</th><th>Units</th></tr></thead><tbody id="step1"></tbody></table>
 
-<div id="mpTabs" class="tabs"></div>
+<h2>STEP 2 — Sales + Stock</h2>
+<table><thead><tr><th>SKU</th><th>MP</th><th>Order Units</th><th>Total Stock</th></tr></thead><tbody id="step2"></tbody></table>
 
-<table>
-  <thead>
-    <tr>
-      <th>SKU</th>
-      <th>Style ID</th>
-      <th>Size</th>
-      <th>BIN</th>
-      <th>Unit</th>
-    </tr>
-  </thead>
-  <tbody id="tbody"></tbody>
-</table>
+<h2>STEP 3 — Invalid Data</h2>
+<table><thead><tr><th>SKU</th><th>MP</th><th>Reason</th></tr></thead><tbody id="step3"></tbody></table>
+
+<h2>STEP 4 — MP Wise Demand</h2>
+<table><thead><tr><th>MP</th><th>SKU</th><th>Order Units</th><th>Total Stock</th></tr></thead><tbody id="step4"></tbody></table>
+
+<h2>STEP 5 — Final Pick List</h2>
+<table><thead><tr><th>SKU</th><th>Style</th><th>Size</th><th>Bin</th><th>Units</th></tr></thead><tbody id="step5"></tbody></table>
+
+<h2>SHORTAGE</h2>
+<table><thead><tr><th>SKU</th><th>MP</th><th>Units</th></tr></thead><tbody id="shortage"></tbody></table>
 
 <script src="app.js"></script>
 </body>
