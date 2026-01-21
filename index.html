@@ -2,30 +2,30 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Pick List Generator V3.2.2</title>
+  <title>Pick List Generator – MP Wise</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
-<h1>📦 Pick List Generator – MP Wise (V3.2.2)</h1>
+<h1>📦 Pick List Generator – MP Wise</h1>
 
 <div class="upload-box">
   <label>
     Sale Orders (CSV / Excel)
-    <input type="file" id="saleFile" accept=".xlsx,.xls,.csv">
+    <input type="file" id="saleFile" accept=".csv,.xlsx,.xls">
     <span class="status" id="saleStatus"></span>
   </label>
 
   <label>
     Uniware Stock (CSV / Excel)
-    <input type="file" id="uniwareFile" accept=".xlsx,.xls,.csv">
+    <input type="file" id="uniwareFile" accept=".csv,.xlsx,.xls">
     <span class="status" id="uniwareStatus"></span>
   </label>
 
   <label>
     Bin Data – Inward Sheet (CSV / Excel)
-    <input type="file" id="binFile" accept=".xlsx,.xls,.csv">
+    <input type="file" id="binFile" accept=".csv,.xlsx,.xls">
     <span class="status" id="binStatus"></span>
   </label>
 
@@ -34,17 +34,6 @@
 </div>
 
 <div id="msg" class="msg"></div>
-
-<div class="sort-box">
-  <label>Sort By:</label>
-  <select id="sortBy" onchange="applySort()">
-    <option value="">Default</option>
-    <option value="SKU">SKU</option>
-    <option value="Style">Style ID</option>
-    <option value="Size">Size</option>
-    <option value="BIN">BIN</option>
-  </select>
-</div>
 
 <div id="mpTabs" class="tabs"></div>
 
