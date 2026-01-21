@@ -1,21 +1,33 @@
 let mpData = {};
 let activeMP = "";
-let filteredPick = [];
+let currentView = [];
 
 const SIZE_ORDER = [
   "FS","XS","S","M","L","XL","XXL",
   "3XL","4XL","5XL","6XL","7XL","8XL","9XL","10XL"
 ];
 
-function readXlsx(file, sheetName=null) {
+function readFile(file, sheetName=null) {
   return new Promise(res => {
-    const r = new FileReader();
-    r.onload = e => {
-      const wb = XLSX.read(e.target.result, { type: "binary" });
-      const sheet = sheetName ? wb.Sheets[sheetName] : wb.Sheets[wb.SheetNames[0]];
-      res(XLSX.utils.sheet_to_json(sheet));
+    const reader = new FileReader();
+    reader.onload = e => {
+      const data = e.target.result;
+      let json;
+
+      if (file.name.endsWith(".csv")) {
+        const wb = XLSX.read(data, { type: "string" });
+        json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      } else {
+        const wb = XLSX.read(data, { type: "binary" });
+        const sheet = sheetName ? wb.Sheets[sheetName] : wb.Sheets[wb.SheetNames[0]];
+        json = XLSX.utils.sheet_to_json(sheet);
+      }
+      res(json);
     };
-    r.readAsBinaryString(file);
+
+    file.name.endsWith(".csv")
+      ? reader.readAsText(file)
+      : reader.readAsBinaryString(file);
   });
 }
 
@@ -26,11 +38,10 @@ function parseSku(sku) {
 }
 
 async function generate() {
-  const sale = await readXlsx(saleFile.files[0]);
-  const uni = await readXlsx(uniwareFile.files[0]);
-  const bin = await readXlsx(binFile.files[0], "Inward");
+  const sale = await readFile(saleFile.files[0]);
+  const uni = await readFile(uniwareFile.files[0]);
+  const bin = await readFile(binFile.files[0], "Inward");
 
-  /* DEMAND MP → SKU */
   const demand = {};
   sale.forEach(r => {
     const sku = r["Item SKU Code (Sku Code)"];
@@ -40,10 +51,8 @@ async function generate() {
     demand[mp][sku] = (demand[mp][sku] || 0) + 1;
   });
 
-  /* MASTER STOCK */
   const stock = {};
 
-  // Uniware stock (+)
   uni.forEach(r => {
     const sku = r["Sku Code"];
     const binId = r["Shelf"];
@@ -53,7 +62,6 @@ async function generate() {
     stock[sku][binId] = (stock[sku][binId] || 0) + qty;
   });
 
-  // Bin inward stock (-)
   bin.forEach(r => {
     const sku = r["SKU"];
     const binId = r["Bin"];
@@ -63,7 +71,6 @@ async function generate() {
     stock[sku][binId] = (stock[sku][binId] || 0) - qty;
   });
 
-  /* PICK GENERATION */
   mpData = {};
 
   for (let mp in demand) {
@@ -95,13 +102,15 @@ async function generate() {
       }
     }
 
-    mpData[mp].sort((a,b)=>{
-      if(a.SKU!==b.SKU) return a.SKU.localeCompare(b.SKU);
-      return SIZE_ORDER.indexOf(a.Size) - SIZE_ORDER.indexOf(b.Size);
-    });
+    mpData[mp].sort(defaultSort);
   }
 
   buildTabs();
+}
+
+function defaultSort(a,b) {
+  if(a.SKU!==b.SKU) return a.SKU.localeCompare(b.SKU);
+  return SIZE_ORDER.indexOf(a.Size) - SIZE_ORDER.indexOf(b.Size);
 }
 
 function buildTabs() {
@@ -125,27 +134,25 @@ function switchMP(mp) {
   [...mpTabs.children].forEach(t=>{
     t.classList.toggle("active", t.innerText===mp);
   });
-  applyFilters();
+  currentView = [...mpData[mp]];
+  applySort();
 }
 
-function applyFilters() {
-  const s = fSku.value.toLowerCase();
-  const st = fStyle.value.toLowerCase();
-  const sz = fSize.value.toLowerCase();
-  const b = fBin.value.toLowerCase();
-
-  filteredPick = (mpData[activeMP] || []).filter(r =>
-    r.SKU.toLowerCase().includes(s) &&
-    r.Style.toLowerCase().includes(st) &&
-    r.Size.toLowerCase().includes(sz) &&
-    r.BIN.toLowerCase().includes(b)
-  );
+function applySort() {
+  const key = sortBy.value;
+  if (!key) {
+    currentView.sort(defaultSort);
+  } else if (key === "Size") {
+    currentView.sort((a,b)=>SIZE_ORDER.indexOf(a.Size)-SIZE_ORDER.indexOf(b.Size));
+  } else {
+    currentView.sort((a,b)=>a[key].localeCompare(b[key]));
+  }
   render();
 }
 
 function render() {
   tbody.innerHTML = "";
-  filteredPick.forEach(r=>{
+  currentView.forEach(r=>{
     tbody.innerHTML += `
       <tr>
         <td>${r.SKU}</td>
