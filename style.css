@@ -16,6 +16,24 @@ input, button {
   padding: 6px;
 }
 
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tab {
+  padding: 6px 12px;
+  background: #ddd;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.tab.active {
+  background: #4285f4;
+  color: #fff;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
