@@ -7,42 +7,67 @@ const SIZE_ORDER = [
   "3XL","4XL","5XL","6XL","7XL","8XL","9XL","10XL"
 ];
 
+/* ========= SAFE FILE READER (CSV + EXCEL) ========= */
 function readFile(file, requiredSheet = null) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = e => {
-      const isCSV = file.name.toLowerCase().endsWith(".csv");
-      const wb = XLSX.read(e.target.result, { type: isCSV ? "string" : "binary" });
-      const sheet = isCSV
-        ? wb.Sheets[wb.SheetNames[0]]
-        : requiredSheet
+      const wb = XLSX.read(e.target.result, {
+        type: file.name.toLowerCase().endsWith(".csv") ? "string" : "binary"
+      });
+
+      let sheet;
+      if (file.name.toLowerCase().endsWith(".csv")) {
+        sheet = wb.Sheets[wb.SheetNames[0]];
+      } else {
+        sheet = requiredSheet
           ? wb.Sheets[requiredSheet]
           : wb.Sheets[wb.SheetNames[0]];
+      }
 
-      if (!sheet) reject(`Sheet "${requiredSheet}" not found`);
+      if (!sheet) {
+        reject(`Required sheet "${requiredSheet}" not found in ${file.name}`);
+        return;
+      }
+
       resolve(XLSX.utils.sheet_to_json(sheet));
     };
-    isCSV ? reader.readAsText(file) : reader.readAsBinaryString(file);
+
+    file.name.toLowerCase().endsWith(".csv")
+      ? reader.readAsText(file)
+      : reader.readAsBinaryString(file);
   });
 }
 
+/* ========= SKU PARSE ========= */
 function parseSku(sku) {
+  sku = sku?.toString().trim();
   if (!sku) return null;
-  sku = sku.toString().trim();
   if (!sku.includes("-")) return { style: sku, size: "FS" };
   const [s, z] = sku.split("-");
   return { style: s.trim(), size: (z || "FS").trim() };
 }
 
+/* ========= UPLOAD STATUS ========= */
+["saleFile","uniwareFile","binFile"].forEach(id => {
+  document.getElementById(id).addEventListener("change", e => {
+    document.getElementById(id.replace("File","Status")).innerText =
+      e.target.files.length ? "✔ Uploaded" : "";
+  });
+});
+
+/* ========= GENERATE ========= */
 async function generate() {
   const msg = document.getElementById("msg");
   msg.innerText = "";
 
   try {
-    const sales = await readFile(saleFile.files[0]);
-    const uni = await readFile(uniwareFile.files[0]);
-    const bin = await readFile(binFile.files[0], "Inward");
+    const sales = await readFile(document.getElementById("saleFile").files[0]);
+    const uni = await readFile(document.getElementById("uniwareFile").files[0]);
+    const bin = await readFile(document.getElementById("binFile").files[0], "Inward");
 
+    /* DEMAND */
     const demand = {};
     sales.forEach(r => {
       const sku = r["Item SKU Code (Sku Code)"]?.toString().trim();
@@ -52,7 +77,9 @@ async function generate() {
       demand[mp][sku] = (demand[mp][sku] || 0) + 1;
     });
 
+    /* STOCK */
     const stock = {};
+
     uni.forEach(r => {
       const sku = r["Sku Code"]?.toString().trim();
       const binId = r["Shelf"]?.toString().trim();
@@ -71,22 +98,25 @@ async function generate() {
       stock[sku][binId] = (stock[sku][binId] || 0) - qty;
     });
 
+    /* PICK */
     mpData = {};
-    let totalPicks = 0;
+    let total = 0;
 
     for (let mp in demand) {
       mpData[mp] = [];
+
       for (let sku in demand[mp]) {
         let need = demand[mp][sku];
-        const bins = Object.entries(stock[sku] || {}).filter(([_, q]) => q > 0);
         const parsed = parseSku(sku);
         if (!parsed) continue;
 
-        bins.sort((a,b)=>{
-          if (a[0].toLowerCase()==="godown") return -1;
-          if (b[0].toLowerCase()==="godown") return 1;
-          return a[0].localeCompare(b[0]);
-        });
+        const bins = Object.entries(stock[sku] || {})
+          .filter(([_, q]) => q > 0)
+          .sort((a,b)=>{
+            if (a[0].toLowerCase()==="godown") return -1;
+            if (b[0].toLowerCase()==="godown") return 1;
+            return a[0].localeCompare(b[0]);
+          });
 
         for (let [binId, qty] of bins) {
           if (need <= 0) break;
@@ -99,34 +129,39 @@ async function generate() {
             Unit: pick
           });
           need -= pick;
-          totalPicks += pick;
+          total += pick;
         }
       }
     }
 
-    if (totalPicks === 0) {
-      msg.innerText = "⚠️ Report generated but NO PICK DATA. Check SKU match & inward stock.";
+    if (total === 0) {
+      msg.innerText = "⚠️ No pick data generated. Check SKU match & inward stock.";
       return;
     }
 
     buildTabs();
-    msg.innerText = `✅ Report generated successfully | Total Pick Units: ${totalPicks}`;
+    msg.innerText = `✅ Report generated successfully | Units: ${total}`;
 
   } catch (e) {
     alert(e);
   }
 }
 
+/* ========= UI ========= */
 function buildTabs() {
   mpTabs.innerHTML = "";
-  Object.keys(mpData).forEach((mp,i)=>{
+  const mps = Object.keys(mpData);
+  if (!mps.length) return;
+
+  mps.forEach((mp,i)=>{
     const t = document.createElement("div");
     t.className = "tab" + (i===0?" active":"");
     t.innerText = mp;
     t.onclick = ()=>switchMP(mp);
     mpTabs.appendChild(t);
   });
-  switchMP(Object.keys(mpData)[0]);
+
+  switchMP(mps[0]);
 }
 
 function switchMP(mp) {
