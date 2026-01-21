@@ -7,13 +7,13 @@ const SIZE_ORDER = [
   "3XL","4XL","5XL","6XL","7XL","8XL","9XL","10XL"
 ];
 
-function readXlsx(file) {
+function readXlsx(file, sheetName=null) {
   return new Promise(res => {
     const r = new FileReader();
     r.onload = e => {
       const wb = XLSX.read(e.target.result, { type: "binary" });
-      const sh = wb.Sheets[wb.SheetNames[0]];
-      res(XLSX.utils.sheet_to_json(sh));
+      const sheet = sheetName ? wb.Sheets[sheetName] : wb.Sheets[wb.SheetNames[0]];
+      res(XLSX.utils.sheet_to_json(sheet));
     };
     r.readAsBinaryString(file);
   });
@@ -28,8 +28,9 @@ function parseSku(sku) {
 async function generate() {
   const sale = await readXlsx(saleFile.files[0]);
   const uni = await readXlsx(uniwareFile.files[0]);
-  const bin = await readXlsx(binFile.files[0]);
+  const bin = await readXlsx(binFile.files[0], "Inward");
 
+  /* DEMAND MP → SKU */
   const demand = {};
   sale.forEach(r => {
     const sku = r["Item SKU Code (Sku Code)"];
@@ -39,25 +40,35 @@ async function generate() {
     demand[mp][sku] = (demand[mp][sku] || 0) + 1;
   });
 
+  /* MASTER STOCK */
   const stock = {};
-  function addStock(arr, sign) {
-    arr.forEach(r => {
-      const sku = r["Sku Code"];
-      const binId = r["Shelf"];
-      const qty = Number(r["Available (ATP)"]) * sign;
-      if (!sku || !binId || !qty) return;
-      stock[sku] = stock[sku] || {};
-      stock[sku][binId] = (stock[sku][binId] || 0) + qty;
-    });
-  }
 
-  addStock(uni, 1);
-  addStock(bin, -1);
+  // Uniware stock (+)
+  uni.forEach(r => {
+    const sku = r["Sku Code"];
+    const binId = r["Shelf"];
+    const qty = Number(r["Available (ATP)"]);
+    if (!sku || !binId || !qty) return;
+    stock[sku] = stock[sku] || {};
+    stock[sku][binId] = (stock[sku][binId] || 0) + qty;
+  });
 
+  // Bin inward stock (-)
+  bin.forEach(r => {
+    const sku = r["SKU"];
+    const binId = r["Bin"];
+    const qty = Number(r["Qty"]);
+    if (!sku || !binId || !qty) return;
+    stock[sku] = stock[sku] || {};
+    stock[sku][binId] = (stock[sku][binId] || 0) - qty;
+  });
+
+  /* PICK GENERATION */
   mpData = {};
 
   for (let mp in demand) {
     mpData[mp] = [];
+
     for (let sku in demand[mp]) {
       let need = demand[mp][sku];
       const bins = Object.entries(stock[sku] || {})
@@ -99,11 +110,11 @@ function buildTabs() {
   if (!mps.length) return;
 
   mps.forEach((mp,i)=>{
-    const d = document.createElement("div");
-    d.className = "tab" + (i===0 ? " active":"");
-    d.innerText = mp;
-    d.onclick = ()=>switchMP(mp);
-    mpTabs.appendChild(d);
+    const t = document.createElement("div");
+    t.className = "tab" + (i===0 ? " active":"");
+    t.innerText = mp;
+    t.onclick = ()=>switchMP(mp);
+    mpTabs.appendChild(t);
   });
 
   switchMP(mps[0]);
@@ -148,11 +159,9 @@ function render() {
 
 function exportExcel() {
   const wb = XLSX.utils.book_new();
-
   for (let mp in mpData) {
     const ws = XLSX.utils.json_to_sheet(mpData[mp]);
     XLSX.utils.book_append_sheet(wb, ws, mp.substring(0,31));
   }
-
   XLSX.writeFile(wb, "MP_Wise_Pick_List.xlsx");
 }
