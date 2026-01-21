@@ -1,3 +1,9 @@
+/* ===============================
+   Pick List Generator – V3.3
+   FULL REPLACEABLE FILE
+   NO isCSV ANYWHERE
+================================ */
+
 let mpData = {};
 let activeMP = "";
 let currentView = [];
@@ -7,103 +13,133 @@ const SIZE_ORDER = [
   "3XL","4XL","5XL","6XL","7XL","8XL","9XL","10XL"
 ];
 
-/* ========= SAFE FILE READER ========= */
-function readFile(file, requiredSheet = null) {
+/* ---------- FILE READER (CSV + EXCEL SAFE) ---------- */
+function readFile(file, sheetName = null) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = e => {
-      const isCSV = file.name.toLowerCase().endsWith(".csv");
-      const wb = XLSX.read(e.target.result, { type: isCSV ? "string" : "binary" });
+      const isCsvFile = file.name.toLowerCase().endsWith(".csv");
+      const workbook = XLSX.read(e.target.result, {
+        type: isCsvFile ? "string" : "binary"
+      });
 
       let sheet;
-      if (isCSV) {
-        sheet = wb.Sheets[wb.SheetNames[0]];
+      if (isCsvFile) {
+        sheet = workbook.Sheets[workbook.SheetNames[0]];
       } else {
-        sheet = requiredSheet
-          ? wb.Sheets[requiredSheet]
-          : wb.Sheets[wb.SheetNames[0]];
+        sheet = sheetName
+          ? workbook.Sheets[sheetName]
+          : workbook.Sheets[workbook.SheetNames[0]];
       }
 
       if (!sheet) {
-        reject(`Required sheet "${requiredSheet}" not found in ${file.name}`);
+        reject(`Required sheet "${sheetName}" not found in ${file.name}`);
         return;
       }
 
       resolve(XLSX.utils.sheet_to_json(sheet));
     };
 
-    isCSV ? reader.readAsText(file) : reader.readAsBinaryString(file);
+    file.name.toLowerCase().endsWith(".csv")
+      ? reader.readAsText(file)
+      : reader.readAsBinaryString(file);
   });
 }
 
-/* ========= SKU PARSE ========= */
+/* ---------- SKU PARSE ---------- */
 function parseSku(sku) {
-  sku = sku?.toString().trim();
   if (!sku) return null;
-  if (!sku.includes("-")) return { style: sku, size: "FS" };
-  const [s, z] = sku.split("-");
-  return { style: s.trim(), size: (z || "FS").trim() };
+  sku = sku.toString().trim();
+
+  if (!sku.includes("-")) {
+    return { style: sku, size: "FS" };
+  }
+
+  const parts = sku.split("-");
+  return {
+    style: parts[0].trim(),
+    size: (parts[1] || "FS").trim()
+  };
 }
 
-/* ========= GENERATE ========= */
+/* ---------- UPLOAD STATUS ---------- */
+["saleFile", "uniwareFile", "binFile"].forEach(id => {
+  document.getElementById(id).addEventListener("change", e => {
+    const statusId = id.replace("File", "Status");
+    document.getElementById(statusId).innerText =
+      e.target.files.length ? "✔ Uploaded" : "";
+  });
+});
+
+/* ---------- GENERATE REPORT ---------- */
 async function generate() {
   const msg = document.getElementById("msg");
   msg.innerText = "";
 
   try {
-    const sales = await readFile(document.getElementById("saleFile").files[0]);
-    const uni = await readFile(document.getElementById("uniwareFile").files[0]);
-    const inward = await readFile(document.getElementById("binFile").files[0], "Inward");
+    const saleFile = document.getElementById("saleFile").files[0];
+    const uniwareFile = document.getElementById("uniwareFile").files[0];
+    const binFile = document.getElementById("binFile").files[0];
 
-    /* -------- DEMAND (MP → SKU) -------- */
+    if (!saleFile || !uniwareFile || !binFile) {
+      alert("Please upload all 3 files");
+      return;
+    }
+
+    const sales = await readFile(saleFile);
+    const uniware = await readFile(uniwareFile);
+    const inward = await readFile(binFile, "Inward");
+
+    /* ---------- DEMAND (MP → SKU → Units) ---------- */
     const demand = {};
     sales.forEach(r => {
       const sku = r["Item SKU Code (Sku Code)"]?.toString().trim();
       const mp = (r["Channel Name (MP)"] || "UNKNOWN").toString().trim();
       if (!sku) return;
 
-      demand[mp] = demand[mp] || {};
+      if (!demand[mp]) demand[mp] = {};
       demand[mp][sku] = (demand[mp][sku] || 0) + 1;
     });
 
-    /* -------- BUILD MASTER STOCK -------- */
+    /* ---------- MASTER STOCK LOGIC ---------- */
     const stock = {};
 
-    // Step 1: Load Uniware stock into godown
-    uni.forEach(r => {
+    // Step 1: Load Uniware stock as GODOWN stock
+    uniware.forEach(r => {
       const sku = r["Sku Code"]?.toString().trim();
       const qty = Number(r["Available (ATP)"]);
       if (!sku || qty <= 0) return;
 
-      stock[sku] = stock[sku] || {};
+      if (!stock[sku]) stock[sku] = {};
       stock[sku]["godown"] = (stock[sku]["godown"] || 0) + qty;
     });
 
-    // Step 2: Move inward from godown → bins
+    // Step 2: Move inward stock from GODOWN → BIN
     inward.forEach(r => {
       const sku = r["SKU"]?.toString().trim();
       const binId = r["Bin"]?.toString().trim();
       const qty = Number(r["Qty"]);
       if (!sku || !binId || qty <= 0) return;
 
-      stock[sku] = stock[sku] || {};
+      if (!stock[sku]) stock[sku] = {};
       stock[sku]["godown"] = (stock[sku]["godown"] || 0) - qty;
       stock[sku][binId] = (stock[sku][binId] || 0) + qty;
     });
 
-    /* -------- PICK LIST -------- */
+    /* ---------- PICK LIST GENERATION ---------- */
     mpData = {};
     let totalUnits = 0;
 
-    for (let mp in demand) {
+    for (const mp in demand) {
       mpData[mp] = [];
 
-      for (let sku in demand[mp]) {
-        let need = demand[mp][sku];
+      for (const sku in demand[mp]) {
+        let required = demand[mp][sku];
         const parsed = parseSku(sku);
         if (!parsed) continue;
 
-        const bins = Object.entries(stock[sku] || {})
+        const availableBins = Object.entries(stock[sku] || {})
           .filter(([_, q]) => q > 0)
           .sort((a, b) => {
             if (a[0] === "godown") return -1;
@@ -111,20 +147,20 @@ async function generate() {
             return a[0].localeCompare(b[0]);
           });
 
-        for (let [binId, qty] of bins) {
-          if (need <= 0) break;
-          const pick = Math.min(qty, need);
+        for (const [binId, qty] of availableBins) {
+          if (required <= 0) break;
 
+          const pickQty = Math.min(qty, required);
           mpData[mp].push({
             SKU: sku,
             Style: parsed.style,
             Size: parsed.size,
             BIN: binId,
-            Unit: pick
+            Unit: pickQty
           });
 
-          need -= pick;
-          totalUnits += pick;
+          required -= pickQty;
+          totalUnits += pickQty;
         }
       }
 
@@ -135,30 +171,34 @@ async function generate() {
     }
 
     if (totalUnits === 0) {
-      msg.innerText = "⚠️ No pick data generated even after master stock logic.";
+      msg.innerText = "⚠️ No pick data generated. Check stock & inward mapping.";
+      mpTabs.innerHTML = "";
+      tbody.innerHTML = "";
       return;
     }
 
     buildTabs();
-    msg.innerText = `✅ Report generated successfully | Units: ${totalUnits}`;
+    msg.innerText = `✅ Report generated successfully | Total Units: ${totalUnits}`;
 
-  } catch (e) {
-    alert(e);
+  } catch (err) {
+    alert(err);
   }
 }
 
-/* ========= UI ========= */
+/* ---------- UI FUNCTIONS ---------- */
 function buildTabs() {
+  const mpTabs = document.getElementById("mpTabs");
   mpTabs.innerHTML = "";
+
   const mps = Object.keys(mpData);
   if (!mps.length) return;
 
-  mps.forEach((mp, i) => {
-    const t = document.createElement("div");
-    t.className = "tab" + (i === 0 ? " active" : "");
-    t.innerText = mp;
-    t.onclick = () => switchMP(mp);
-    mpTabs.appendChild(t);
+  mps.forEach((mp, index) => {
+    const tab = document.createElement("div");
+    tab.className = "tab" + (index === 0 ? " active" : "");
+    tab.innerText = mp;
+    tab.onclick = () => switchMP(mp);
+    mpTabs.appendChild(tab);
   });
 
   switchMP(mps[0]);
@@ -174,7 +214,9 @@ function switchMP(mp) {
 }
 
 function render() {
+  const tbody = document.getElementById("tbody");
   tbody.innerHTML = "";
+
   currentView.forEach(r => {
     tbody.innerHTML += `
       <tr>
@@ -183,18 +225,19 @@ function render() {
         <td>${r.Size}</td>
         <td>${r.BIN}</td>
         <td>${r.Unit}</td>
-      </tr>`;
+      </tr>
+    `;
   });
 }
 
+/* ---------- EXPORT ---------- */
 function exportExcel() {
   const wb = XLSX.utils.book_new();
-  for (let mp in mpData) {
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(mpData[mp]),
-      mp.substring(0, 31)
-    );
+
+  for (const mp in mpData) {
+    const ws = XLSX.utils.json_to_sheet(mpData[mp]);
+    XLSX.utils.book_append_sheet(wb, ws, mp.substring(0, 31));
   }
+
   XLSX.writeFile(wb, "MP_Wise_Pick_List.xlsx");
 }
