@@ -7,27 +7,39 @@ const SIZE_ORDER = [
   "3XL","4XL","5XL","6XL","7XL","8XL","9XL","10XL"
 ];
 
-/* ---------- FILE READ ---------- */
+/* ---------- FILE READ (SAFE) ---------- */
 function readFile(file, sheetName=null) {
-  return new Promise(res => {
+  return new Promise((res, rej) => {
     const reader = new FileReader();
     reader.onload = e => {
-      let wb;
-      if (file.name.endsWith(".csv")) {
-        wb = XLSX.read(e.target.result, { type: "string" });
+      const isCSV = file.name.toLowerCase().endsWith(".csv");
+      const wb = XLSX.read(
+        e.target.result,
+        { type: isCSV ? "string" : "binary" }
+      );
+
+      let sheet;
+      if (isCSV) {
+        sheet = wb.Sheets[wb.SheetNames[0]];
       } else {
-        wb = XLSX.read(e.target.result, { type: "binary" });
+        sheet = sheetName
+          ? wb.Sheets[sheetName]
+          : wb.Sheets[wb.SheetNames[0]];
       }
-      const sheet = sheetName ? wb.Sheets[sheetName] : wb.Sheets[wb.SheetNames[0]];
+
+      if (!sheet) {
+        rej(`Sheet "${sheetName}" not found in ${file.name}`);
+        return;
+      }
+
       res(XLSX.utils.sheet_to_json(sheet));
     };
-    file.name.endsWith(".csv")
-      ? reader.readAsText(file)
-      : reader.readAsBinaryString(file);
+
+    isCSV ? reader.readAsText(file) : reader.readAsBinaryString(file);
   });
 }
 
-/* ---------- SKU PARSE ---------- */
+/* ---------- SKU ---------- */
 function parseSku(sku) {
   if (!sku.includes("-")) return { style: sku, size: "FS" };
   const [s, z] = sku.split("-");
@@ -44,83 +56,78 @@ function parseSku(sku) {
 
 /* ---------- GENERATE ---------- */
 async function generate() {
-  const saleInput = document.getElementById("saleFile");
-  const uniInput = document.getElementById("uniwareFile");
-  const binInput = document.getElementById("binFile");
+  msg.innerText = "";
 
-  if (!saleInput.files[0] || !uniInput.files[0] || !binInput.files[0]) {
-    alert("Please upload all 3 files");
-    return;
-  }
+  try {
+    const sale = await readFile(saleFile.files[0]);
+    const uni = await readFile(uniwareFile.files[0]);
+    const bin = await readFile(binFile.files[0], "Inward");
 
-  const sale = await readFile(saleInput.files[0]);
-  const uni = await readFile(uniInput.files[0]);
-  const bin = await readFile(binInput.files[0], "Inward");
+    /* DEMAND */
+    const demand = {};
+    sale.forEach(r => {
+      const sku = r["Item SKU Code (Sku Code)"];
+      const mp = r["Channel Name (MP)"] || "UNKNOWN";
+      if (!sku) return;
+      demand[mp] = demand[mp] || {};
+      demand[mp][sku] = (demand[mp][sku] || 0) + 1;
+    });
 
-  /* DEMAND */
-  const demand = {};
-  sale.forEach(r => {
-    const sku = r["Item SKU Code (Sku Code)"];
-    const mp = r["Channel Name (MP)"] || "UNKNOWN";
-    if (!sku) return;
-    demand[mp] = demand[mp] || {};
-    demand[mp][sku] = (demand[mp][sku] || 0) + 1;
-  });
+    /* STOCK */
+    const stock = {};
+    uni.forEach(r => {
+      const sku = r["Sku Code"];
+      const binId = r["Shelf"];
+      const qty = Number(r["Available (ATP)"]);
+      if (!sku || !binId || !qty) return;
+      stock[sku] = stock[sku] || {};
+      stock[sku][binId] = (stock[sku][binId] || 0) + qty;
+    });
 
-  /* STOCK */
-  const stock = {};
+    bin.forEach(r => {
+      const sku = r["SKU"];
+      const binId = r["Bin"];
+      const qty = Number(r["Qty"]);
+      if (!sku || !binId || !qty) return;
+      stock[sku] = stock[sku] || {};
+      stock[sku][binId] = (stock[sku][binId] || 0) - qty;
+    });
 
-  uni.forEach(r => {
-    const sku = r["Sku Code"];
-    const binId = r["Shelf"];
-    const qty = Number(r["Available (ATP)"]);
-    if (!sku || !binId || !qty) return;
-    stock[sku] = stock[sku] || {};
-    stock[sku][binId] = (stock[sku][binId] || 0) + qty;
-  });
+    /* PICK */
+    mpData = {};
+    for (let mp in demand) {
+      mpData[mp] = [];
+      for (let sku in demand[mp]) {
+        let need = demand[mp][sku];
+        const bins = Object.entries(stock[sku] || {})
+          .filter(([_, q]) => q > 0)
+          .sort((a,b)=>{
+            if(a[0].toLowerCase()==="godown") return -1;
+            if(b[0].toLowerCase()==="godown") return 1;
+            return a[0].localeCompare(b[0]);
+          });
 
-  bin.forEach(r => {
-    const sku = r["SKU"];
-    const binId = r["Bin"];
-    const qty = Number(r["Qty"]);
-    if (!sku || !binId || !qty) return;
-    stock[sku] = stock[sku] || {};
-    stock[sku][binId] = (stock[sku][binId] || 0) - qty;
-  });
+        const { style, size } = parseSku(sku);
 
-  /* PICK */
-  mpData = {};
-
-  for (let mp in demand) {
-    mpData[mp] = [];
-
-    for (let sku in demand[mp]) {
-      let need = demand[mp][sku];
-      const bins = Object.entries(stock[sku] || {})
-        .filter(([_, q]) => q > 0)
-        .sort((a,b)=>{
-          if(a[0].toLowerCase()==="godown") return -1;
-          if(b[0].toLowerCase()==="godown") return 1;
-          return a[0].localeCompare(b[0]);
-        });
-
-      const { style, size } = parseSku(sku);
-
-      for (let [binId, qty] of bins) {
-        if (need <= 0) break;
-        const pick = Math.min(qty, need);
-        mpData[mp].push({ SKU: sku, Style: style, Size: size, BIN: binId, Unit: pick });
-        need -= pick;
+        for (let [binId, qty] of bins) {
+          if (need <= 0) break;
+          const pick = Math.min(qty, need);
+          mpData[mp].push({ SKU: sku, Style: style, Size: size, BIN: binId, Unit: pick });
+          need -= pick;
+        }
       }
+      mpData[mp].sort(defaultSort);
     }
 
-    mpData[mp].sort(defaultSort);
-  }
+    buildTabs();
+    msg.innerText = "✅ Report generated successfully";
 
-  buildTabs();
+  } catch (err) {
+    alert(err);
+  }
 }
 
-/* ---------- SORT & UI ---------- */
+/* ---------- UI ---------- */
 function defaultSort(a,b) {
   if(a.SKU!==b.SKU) return a.SKU.localeCompare(b.SKU);
   return SIZE_ORDER.indexOf(a.Size) - SIZE_ORDER.indexOf(b.Size);
