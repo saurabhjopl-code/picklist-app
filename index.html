@@ -2,13 +2,13 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Pick List Generator V2</title>
+  <title>Pick List Generator V3</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
-<h1>📦 Pick List Generator – V2</h1>
+<h1>📦 Pick List Generator – MP Wise (V3)</h1>
 
 <div class="upload-box">
   <input type="file" id="saleFile" accept=".xlsx">
@@ -19,11 +19,13 @@
 </div>
 
 <div class="filters">
-  <input placeholder="Filter SKU" oninput="applyFilters()" id="fSku">
-  <input placeholder="Filter Style ID" oninput="applyFilters()" id="fStyle">
-  <input placeholder="Filter Size" oninput="applyFilters()" id="fSize">
-  <input placeholder="Filter BIN" oninput="applyFilters()" id="fBin">
+  <input placeholder="Filter SKU" id="fSku" oninput="applyFilters()">
+  <input placeholder="Filter Style ID" id="fStyle" oninput="applyFilters()">
+  <input placeholder="Filter Size" id="fSize" oninput="applyFilters()">
+  <input placeholder="Filter BIN" id="fBin" oninput="applyFilters()">
 </div>
+
+<div id="mpTabs" class="tabs"></div>
 
 <table>
   <thead>
