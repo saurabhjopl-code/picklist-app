@@ -1,35 +1,66 @@
 /* =================================================
-   Pick List Generator – FINAL LOGIC VERSION
-   FULL REPLACEABLE FILE
+   Pick List Generator – FINAL STABLE VERSION
 ================================================= */
 
 let mpData = {};
 let shortageData = [];
 let activeTab = "";
+let currentView = [];
 
 const SIZE_ORDER = [
   "FS","XS","S","M","L","XL","XXL",
   "3XL","4XL","5XL","6XL","7XL","8XL","9XL","10XL"
 ];
 
+/* ---------- MP MAPPING ---------- */
+const MP_MAP = {
+  "MYNTRAPPMP": "MYNTRA",
+  "MYNTRAPPMP-VIHAAN": "MYNTRA",
+  "NYKAA_FASHION_NEW": "NYKAA",
+  "SNAP_DEAL": "SNAPDEAL",
+  "SNAPDEAL_WW": "SNAPDEAL",
+  "SNAPDEAL_ARF": "SNAPDEAL",
+  "SNAPDEAL_SGA": "SNAPDEAL",
+  "SNAPDEAL_SVF": "SNAPDEAL",
+  "SNAPDEAL_VEXIM": "SNAPDEAL",
+  "MEESHO": "MEESHO",
+  "MEESHO_WW": "MEESHO",
+  "MEESHO_SVF": "MEESHO",
+  "MEESHO_VEXIM": "MEESHO",
+  "MEESHO_ARF": "MEESHO",
+  "MEESHO_SGA": "MEESHO",
+  "FLIPKART": "FLIPKART",
+  "FLIPKART_SVF": "FLIPKART",
+  "FLIPKART_ARF": "FLIPKART",
+  "FLIPKART_WW": "FLIPKART",
+  "FLIPKART_VEXIM": "FLIPKART",
+  "FLIPKART_SGA": "FLIPKART",
+  "AMAZON_FLEX_API": "AMAZON",
+  "AMAZON_IN_API": "AMAZON",
+  "AJIO_NEW": "AJIO",
+  "TATACLIQ": "TATACLIQ",
+  "LIMEROAD": "LIMEROAD",
+  "MIRRAW": "MIRRAW",
+  "RJN_SHOPIFY": "SHOPSY"
+};
+
 /* ---------- FILE READER ---------- */
 function readFile(file, sheetName = null) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-
     reader.onload = e => {
-      const workbook = XLSX.read(e.target.result, {
+      const wb = XLSX.read(e.target.result, {
         type: file.name.toLowerCase().endsWith(".csv") ? "string" : "binary"
       });
 
       const sheet = file.name.toLowerCase().endsWith(".csv")
-        ? workbook.Sheets[workbook.SheetNames[0]]
+        ? wb.Sheets[wb.SheetNames[0]]
         : sheetName
-          ? workbook.Sheets[sheetName]
-          : workbook.Sheets[workbook.SheetNames[0]];
+          ? wb.Sheets[sheetName]
+          : wb.Sheets[wb.SheetNames[0]];
 
       if (!sheet) {
-        reject(`Sheet "${sheetName}" not found in ${file.name}`);
+        reject(`Sheet "${sheetName}" not found`);
         return;
       }
 
@@ -44,9 +75,9 @@ function readFile(file, sheetName = null) {
 
 /* ---------- SKU NORMALIZATION ---------- */
 function normalizeSku(rawSku) {
-  const original = rawSku?.toString().trim() || "";
-  const cleaned = original.replace(/\s+/g, "").toUpperCase();
+  if (!rawSku || !rawSku.toString().trim()) return null;
 
+  const cleaned = rawSku.toString().trim().toUpperCase().replace(/\s+/g, "");
   let style, size, displaySize;
 
   if (cleaned.includes("-")) {
@@ -58,6 +89,8 @@ function normalizeSku(rawSku) {
     displaySize = "";
   }
 
+  if (!style) return null;
+
   return {
     canonicalSku: `${style}-${size}`,
     style,
@@ -66,18 +99,37 @@ function normalizeSku(rawSku) {
   };
 }
 
-/* ---------- UPLOAD STATUS ---------- */
-["saleFile","uniwareFile","binFile"].forEach(id => {
-  document.getElementById(id).addEventListener("change", e => {
-    document.getElementById(id.replace("File","Status")).innerText =
-      e.target.files.length ? "✔ Uploaded" : "";
-  });
-});
+/* ---------- SORT ---------- */
+function applySort() {
+  const key = document.getElementById("sortBy").value;
+
+  if (!key) {
+    currentView.sort(defaultSort);
+  } else if (key === "Size") {
+    currentView.sort((a, b) =>
+      SIZE_ORDER.indexOf(a.Size || "FS") - SIZE_ORDER.indexOf(b.Size || "FS")
+    );
+  } else {
+    currentView.sort((a, b) =>
+      (a[key] || "").localeCompare(b[key] || "")
+    );
+  }
+
+  render();
+}
+
+function defaultSort(a, b) {
+  if (a.SKU !== b.SKU) return a.SKU.localeCompare(b.SKU);
+  return SIZE_ORDER.indexOf(a.Size || "FS") - SIZE_ORDER.indexOf(b.Size || "FS");
+}
 
 /* ---------- GENERATE ---------- */
 async function generate() {
   const msg = document.getElementById("msg");
   msg.innerText = "";
+
+  mpData = {};
+  shortageData = [];
 
   try {
     const sales = await readFile(saleFile.files[0]);
@@ -86,12 +138,21 @@ async function generate() {
 
     /* ---------- DEMAND ---------- */
     const demand = {};
+
     sales.forEach(r => {
       const skuInfo = normalizeSku(r["Item SKU Code (Sku Code)"]);
-      const mp = (r["Channel Name (MP)"] || "UNKNOWN").toString().trim();
+      const rawMp = r["Channel Name"] || r["Channel Name (MP)"] || "";
+      const cleanedMp = rawMp.toString().trim().toUpperCase().replace(/\s+/g, "_");
+      const mp = MP_MAP[cleanedMp] || "UNKNOWN";
+
+      if (!skuInfo) {
+        shortageData.push({ SKU: "", MP: mp, Units: 1 });
+        return;
+      }
 
       demand[mp] = demand[mp] || {};
-      demand[mp][skuInfo.canonicalSku] = (demand[mp][skuInfo.canonicalSku] || 0) + 1;
+      demand[mp][skuInfo.canonicalSku] =
+        (demand[mp][skuInfo.canonicalSku] || 0) + 1;
     });
 
     /* ---------- MASTER STOCK ---------- */
@@ -100,7 +161,7 @@ async function generate() {
     uniware.forEach(r => {
       const skuInfo = normalizeSku(r["Sku Code"]);
       const qty = Number(r["Available (ATP)"]);
-      if (qty <= 0) return;
+      if (!skuInfo || qty <= 0) return;
 
       stock[skuInfo.canonicalSku] = stock[skuInfo.canonicalSku] || {};
       stock[skuInfo.canonicalSku]["godown"] =
@@ -111,7 +172,7 @@ async function generate() {
       const skuInfo = normalizeSku(r["SKU"]);
       const binId = r["Bin"]?.toString().trim();
       const qty = Number(r["Qty"]);
-      if (!binId || qty <= 0) return;
+      if (!skuInfo || !binId || qty <= 0) return;
 
       stock[skuInfo.canonicalSku] = stock[skuInfo.canonicalSku] || {};
       stock[skuInfo.canonicalSku]["godown"] =
@@ -121,14 +182,11 @@ async function generate() {
     });
 
     /* ---------- PICK + SHORTAGE ---------- */
-    mpData = {};
-    shortageData = [];
-
     for (const mp in demand) {
       mpData[mp] = [];
 
       for (const sku in demand[mp]) {
-        let remaining = demand[mp][sku];
+        let need = demand[mp][sku];
         const bins = Object.entries(stock[sku] || {})
           .filter(([_, q]) => q > 0)
           .sort((a, b) => {
@@ -140,8 +198,8 @@ async function generate() {
         const { style, displaySize } = normalizeSku(sku);
 
         for (const [binId, qty] of bins) {
-          if (remaining <= 0) break;
-          const pick = Math.min(qty, remaining);
+          if (need <= 0) break;
+          const pick = Math.min(qty, need);
 
           mpData[mp].push({
             SKU: sku,
@@ -151,17 +209,15 @@ async function generate() {
             Unit: pick
           });
 
-          remaining -= pick;
+          need -= pick;
         }
 
-        if (remaining > 0) {
-          shortageData.push({
-            SKU: sku,
-            MP: mp,
-            Units: remaining
-          });
+        if (need > 0) {
+          shortageData.push({ SKU: sku, MP: mp, Units: need });
         }
       }
+
+      mpData[mp].sort(defaultSort);
     }
 
     buildTabs();
@@ -201,14 +257,15 @@ function switchTab(tab) {
     t.classList.toggle("active", t.innerText === tab)
   );
 
+  currentView = tab === "SHORTAGE" ? shortageData : mpData[tab];
+  applySort();
+}
+
+function render() {
   tbody.innerHTML = "";
 
-  const rows = tab === "SHORTAGE"
-    ? shortageData
-    : mpData[tab];
-
-  rows.forEach(r => {
-    tbody.innerHTML += tab === "SHORTAGE"
+  currentView.forEach(r => {
+    tbody.innerHTML += activeTab === "SHORTAGE"
       ? `<tr><td>${r.SKU}</td><td></td><td></td><td>${r.MP}</td><td>${r.Units}</td></tr>`
       : `<tr><td>${r.SKU}</td><td>${r.Style}</td><td>${r.Size}</td><td>${r.BIN}</td><td>${r.Unit}</td></tr>`;
   });
