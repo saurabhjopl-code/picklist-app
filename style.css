@@ -1,6 +1,11 @@
 body { font-family: Arial; background:#f4f4f4; padding:20px }
-h2 { margin-top:30px }
-.upload { background:#fff; padding:10px; margin-bottom:20px }
-table { width:100%; background:#fff; border-collapse:collapse; margin-top:10px }
+.controls { background:#fff; padding:10px; display:flex; gap:10px; flex-wrap:wrap }
+label { font-size:13px; display:flex; flex-direction:column }
+button { padding:6px 12px }
+#tabs { margin:10px 0; display:flex; gap:6px }
+.tab { padding:6px 12px; background:#ddd; cursor:pointer; border-radius:4px }
+.tab.active { background:#4285f4; color:#fff }
+table { width:100%; background:#fff; border-collapse:collapse }
 th,td { border:1px solid #ccc; padding:6px; font-size:13px }
 th { background:#eee }
+#msg { font-weight:bold; margin-top:10px }
