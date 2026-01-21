@@ -1,19 +1,18 @@
 /* =================================================
-   Pick List Generator – V3.4
+   Pick List Generator – FINAL LOGIC VERSION
    FULL REPLACEABLE FILE
-   NO isCSV / isCsv / isCsvFile ANYWHERE
 ================================================= */
 
 let mpData = {};
-let activeMP = "";
-let currentView = [];
+let shortageData = [];
+let activeTab = "";
 
 const SIZE_ORDER = [
   "FS","XS","S","M","L","XL","XXL",
   "3XL","4XL","5XL","6XL","7XL","8XL","9XL","10XL"
 ];
 
-/* ---------- FILE READER (CSV + EXCEL, NO FLAGS) ---------- */
+/* ---------- FILE READER ---------- */
 function readFile(file, sheetName = null) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -30,7 +29,7 @@ function readFile(file, sheetName = null) {
           : workbook.Sheets[workbook.SheetNames[0]];
 
       if (!sheet) {
-        reject(`Required sheet "${sheetName}" not found in ${file.name}`);
+        reject(`Sheet "${sheetName}" not found in ${file.name}`);
         return;
       }
 
@@ -43,26 +42,34 @@ function readFile(file, sheetName = null) {
   });
 }
 
-/* ---------- SKU PARSE ---------- */
-function parseSku(sku) {
-  if (!sku) return null;
-  sku = sku.toString().trim();
+/* ---------- SKU NORMALIZATION ---------- */
+function normalizeSku(rawSku) {
+  const original = rawSku?.toString().trim() || "";
+  const cleaned = original.replace(/\s+/g, "").toUpperCase();
 
-  if (!sku.includes("-")) {
-    return { style: sku, size: "FS" };
+  let style, size, displaySize;
+
+  if (cleaned.includes("-")) {
+    [style, size] = cleaned.split("-");
+    displaySize = size;
+  } else {
+    style = cleaned;
+    size = "FS";
+    displaySize = "";
   }
 
-  const parts = sku.split("-");
   return {
-    style: parts[0].trim(),
-    size: (parts[1] || "FS").trim()
+    canonicalSku: `${style}-${size}`,
+    style,
+    size,
+    displaySize
   };
 }
 
 /* ---------- UPLOAD STATUS ---------- */
-["saleFile", "uniwareFile", "binFile"].forEach(id => {
+["saleFile","uniwareFile","binFile"].forEach(id => {
   document.getElementById(id).addEventListener("change", e => {
-    document.getElementById(id.replace("File", "Status")).innerText =
+    document.getElementById(id.replace("File","Status")).innerText =
       e.target.files.length ? "✔ Uploaded" : "";
   });
 });
@@ -73,67 +80,55 @@ async function generate() {
   msg.innerText = "";
 
   try {
-    const saleFile = document.getElementById("saleFile").files[0];
-    const uniwareFile = document.getElementById("uniwareFile").files[0];
-    const binFile = document.getElementById("binFile").files[0];
-
-    if (!saleFile || !uniwareFile || !binFile) {
-      alert("Please upload all 3 files");
-      return;
-    }
-
-    const sales = await readFile(saleFile);
-    const uniware = await readFile(uniwareFile);
-    const inward = await readFile(binFile, "Inward");
+    const sales = await readFile(saleFile.files[0]);
+    const uniware = await readFile(uniwareFile.files[0]);
+    const inward = await readFile(binFile.files[0], "Inward");
 
     /* ---------- DEMAND ---------- */
     const demand = {};
     sales.forEach(r => {
-      const sku = r["Item SKU Code (Sku Code)"]?.toString().trim();
+      const skuInfo = normalizeSku(r["Item SKU Code (Sku Code)"]);
       const mp = (r["Channel Name (MP)"] || "UNKNOWN").toString().trim();
-      if (!sku) return;
 
       demand[mp] = demand[mp] || {};
-      demand[mp][sku] = (demand[mp][sku] || 0) + 1;
+      demand[mp][skuInfo.canonicalSku] = (demand[mp][skuInfo.canonicalSku] || 0) + 1;
     });
 
     /* ---------- MASTER STOCK ---------- */
     const stock = {};
 
-    // Uniware → godown
     uniware.forEach(r => {
-      const sku = r["Sku Code"]?.toString().trim();
+      const skuInfo = normalizeSku(r["Sku Code"]);
       const qty = Number(r["Available (ATP)"]);
-      if (!sku || qty <= 0) return;
+      if (qty <= 0) return;
 
-      stock[sku] = stock[sku] || {};
-      stock[sku]["godown"] = (stock[sku]["godown"] || 0) + qty;
+      stock[skuInfo.canonicalSku] = stock[skuInfo.canonicalSku] || {};
+      stock[skuInfo.canonicalSku]["godown"] =
+        (stock[skuInfo.canonicalSku]["godown"] || 0) + qty;
     });
 
-    // Inward → move from godown to bin
     inward.forEach(r => {
-      const sku = r["SKU"]?.toString().trim();
+      const skuInfo = normalizeSku(r["SKU"]);
       const binId = r["Bin"]?.toString().trim();
       const qty = Number(r["Qty"]);
-      if (!sku || !binId || qty <= 0) return;
+      if (!binId || qty <= 0) return;
 
-      stock[sku] = stock[sku] || {};
-      stock[sku]["godown"] = (stock[sku]["godown"] || 0) - qty;
-      stock[sku][binId] = (stock[sku][binId] || 0) + qty;
+      stock[skuInfo.canonicalSku] = stock[skuInfo.canonicalSku] || {};
+      stock[skuInfo.canonicalSku]["godown"] =
+        Math.max(0, (stock[skuInfo.canonicalSku]["godown"] || 0) - qty);
+      stock[skuInfo.canonicalSku][binId] =
+        (stock[skuInfo.canonicalSku][binId] || 0) + qty;
     });
 
-    /* ---------- PICK LIST ---------- */
+    /* ---------- PICK + SHORTAGE ---------- */
     mpData = {};
-    let totalUnits = 0;
+    shortageData = [];
 
     for (const mp in demand) {
       mpData[mp] = [];
 
       for (const sku in demand[mp]) {
-        let need = demand[mp][sku];
-        const parsed = parseSku(sku);
-        if (!parsed) continue;
-
+        let remaining = demand[mp][sku];
         const bins = Object.entries(stock[sku] || {})
           .filter(([_, q]) => q > 0)
           .sort((a, b) => {
@@ -142,87 +137,87 @@ async function generate() {
             return a[0].localeCompare(b[0]);
           });
 
-        for (const [binId, qty] of bins) {
-          if (need <= 0) break;
+        const { style, displaySize } = normalizeSku(sku);
 
-          const pickQty = Math.min(qty, need);
+        for (const [binId, qty] of bins) {
+          if (remaining <= 0) break;
+          const pick = Math.min(qty, remaining);
+
           mpData[mp].push({
             SKU: sku,
-            Style: parsed.style,
-            Size: parsed.size,
+            Style: style,
+            Size: displaySize,
             BIN: binId,
-            Unit: pickQty
+            Unit: pick
           });
 
-          need -= pickQty;
-          totalUnits += pickQty;
+          remaining -= pick;
+        }
+
+        if (remaining > 0) {
+          shortageData.push({
+            SKU: sku,
+            MP: mp,
+            Units: remaining
+          });
         }
       }
-
-      mpData[mp].sort((a, b) => {
-        if (a.SKU !== b.SKU) return a.SKU.localeCompare(b.SKU);
-        return SIZE_ORDER.indexOf(a.Size) - SIZE_ORDER.indexOf(b.Size);
-      });
-    }
-
-    if (totalUnits === 0) {
-      msg.innerText = "⚠️ No pick data generated. Check stock & inward mapping.";
-      mpTabs.innerHTML = "";
-      tbody.innerHTML = "";
-      return;
     }
 
     buildTabs();
-    msg.innerText = `✅ Report generated successfully | Units: ${totalUnits}`;
+    msg.innerText = "✅ Report generated successfully";
 
-  } catch (err) {
-    alert(err);
+  } catch (e) {
+    alert(e);
   }
 }
 
 /* ---------- UI ---------- */
 function buildTabs() {
   mpTabs.innerHTML = "";
-  const mps = Object.keys(mpData);
 
-  mps.forEach((mp, i) => {
+  Object.keys(mpData).forEach((mp, i) => {
     const tab = document.createElement("div");
     tab.className = "tab" + (i === 0 ? " active" : "");
     tab.innerText = mp;
-    tab.onclick = () => switchMP(mp);
+    tab.onclick = () => switchTab(mp);
     mpTabs.appendChild(tab);
   });
 
-  if (mps.length) switchMP(mps[0]);
+  if (shortageData.length) {
+    const tab = document.createElement("div");
+    tab.className = "tab";
+    tab.innerText = "SHORTAGE";
+    tab.onclick = () => switchTab("SHORTAGE");
+    mpTabs.appendChild(tab);
+  }
+
+  switchTab(Object.keys(mpData)[0]);
 }
 
-function switchMP(mp) {
-  activeMP = mp;
+function switchTab(tab) {
+  activeTab = tab;
   document.querySelectorAll(".tab").forEach(t =>
-    t.classList.toggle("active", t.innerText === mp)
+    t.classList.toggle("active", t.innerText === tab)
   );
-  currentView = [...mpData[mp]];
-  render();
-}
 
-function render() {
   tbody.innerHTML = "";
-  currentView.forEach(r => {
-    tbody.innerHTML += `
-      <tr>
-        <td>${r.SKU}</td>
-        <td>${r.Style}</td>
-        <td>${r.Size}</td>
-        <td>${r.BIN}</td>
-        <td>${r.Unit}</td>
-      </tr>
-    `;
+
+  const rows = tab === "SHORTAGE"
+    ? shortageData
+    : mpData[tab];
+
+  rows.forEach(r => {
+    tbody.innerHTML += tab === "SHORTAGE"
+      ? `<tr><td>${r.SKU}</td><td></td><td></td><td>${r.MP}</td><td>${r.Units}</td></tr>`
+      : `<tr><td>${r.SKU}</td><td>${r.Style}</td><td>${r.Size}</td><td>${r.BIN}</td><td>${r.Unit}</td></tr>`;
   });
 }
 
 /* ---------- EXPORT ---------- */
 function exportExcel() {
   const wb = XLSX.utils.book_new();
+
   for (const mp in mpData) {
     XLSX.utils.book_append_sheet(
       wb,
@@ -230,5 +225,14 @@ function exportExcel() {
       mp.substring(0, 31)
     );
   }
+
+  if (shortageData.length) {
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(shortageData),
+      "SHORTAGE"
+    );
+  }
+
   XLSX.writeFile(wb, "MP_Wise_Pick_List.xlsx");
 }
