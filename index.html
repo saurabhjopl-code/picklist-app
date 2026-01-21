@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pick List Generator</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<h1>📦 Pick List Generator</h1>
+
+<div class="upload-box">
+  <label>
+    Order File (SKU + Order Units)
+    <input type="file" id="orderFile" accept=".xlsx,.xls" />
+  </label>
+
+  <label>
+    Uniware Stock File
+    <input type="file" id="stockFile" accept=".xlsx,.xls" />
+  </label>
+
+  <button onclick="generatePickList()">Generate Pick List</button>
+  <button onclick="exportExcel()">Export Excel</button>
+</div>
+
+<table id="resultTable">
+  <thead>
+    <tr>
+      <th>SKU</th>
+      <th>Style ID</th>
+      <th>Size</th>
+      <th>BIN</th>
+      <th>Unit</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script src="app.js"></script>
+</body>
+</html>
