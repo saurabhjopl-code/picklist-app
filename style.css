@@ -1,26 +1,19 @@
 body {
-  font-family: Arial, sans-serif;
+  font-family: Arial;
+  background: #f4f4f4;
   padding: 20px;
-  background: #f7f7f7;
 }
 
-h1 {
-  margin-bottom: 20px;
-}
-
-.upload-box {
+.upload-box, .filters {
   background: #fff;
-  padding: 15px;
-  border-radius: 6px;
-  margin-bottom: 20px;
+  padding: 10px;
+  margin-bottom: 10px;
   display: flex;
-  gap: 15px;
-  align-items: center;
+  gap: 10px;
 }
 
-button {
-  padding: 8px 14px;
-  cursor: pointer;
+input, button {
+  padding: 6px;
 }
 
 table {
@@ -30,9 +23,9 @@ table {
 }
 
 th, td {
-  border: 1px solid #ddd;
-  padding: 8px;
-  font-size: 14px;
+  border: 1px solid #ccc;
+  padding: 6px;
+  font-size: 13px;
 }
 
 th {
