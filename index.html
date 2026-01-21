@@ -33,6 +33,17 @@
   <button onclick="exportExcel()">Export</button>
 </div>
 
+<div class="sort-box">
+  Sort By:
+  <select id="sortBy" onchange="applySort()">
+    <option value="">Default</option>
+    <option value="SKU">SKU</option>
+    <option value="Style">Style</option>
+    <option value="Size">Size</option>
+    <option value="BIN">BIN</option>
+  </select>
+</div>
+
 <div id="msg" class="msg"></div>
 
 <div id="mpTabs" class="tabs"></div>
