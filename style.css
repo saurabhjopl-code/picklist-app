@@ -24,6 +24,12 @@ label {
   color: green;
 }
 
+.msg {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
 input, select, button {
   padding: 6px;
 }
