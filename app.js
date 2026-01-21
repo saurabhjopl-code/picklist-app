@@ -1,8 +1,8 @@
-/* ===============================
-   Pick List Generator – V3.3
+/* =================================================
+   Pick List Generator – V3.4
    FULL REPLACEABLE FILE
-   NO isCSV ANYWHERE
-================================ */
+   NO isCSV / isCsv / isCsvFile ANYWHERE
+================================================= */
 
 let mpData = {};
 let activeMP = "";
@@ -13,25 +13,21 @@ const SIZE_ORDER = [
   "3XL","4XL","5XL","6XL","7XL","8XL","9XL","10XL"
 ];
 
-/* ---------- FILE READER (CSV + EXCEL SAFE) ---------- */
+/* ---------- FILE READER (CSV + EXCEL, NO FLAGS) ---------- */
 function readFile(file, sheetName = null) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
     reader.onload = e => {
-      const isCsvFile = file.name.toLowerCase().endsWith(".csv");
       const workbook = XLSX.read(e.target.result, {
-        type: isCsvFile ? "string" : "binary"
+        type: file.name.toLowerCase().endsWith(".csv") ? "string" : "binary"
       });
 
-      let sheet;
-      if (isCsvFile) {
-        sheet = workbook.Sheets[workbook.SheetNames[0]];
-      } else {
-        sheet = sheetName
+      const sheet = file.name.toLowerCase().endsWith(".csv")
+        ? workbook.Sheets[workbook.SheetNames[0]]
+        : sheetName
           ? workbook.Sheets[sheetName]
           : workbook.Sheets[workbook.SheetNames[0]];
-      }
 
       if (!sheet) {
         reject(`Required sheet "${sheetName}" not found in ${file.name}`);
@@ -66,13 +62,12 @@ function parseSku(sku) {
 /* ---------- UPLOAD STATUS ---------- */
 ["saleFile", "uniwareFile", "binFile"].forEach(id => {
   document.getElementById(id).addEventListener("change", e => {
-    const statusId = id.replace("File", "Status");
-    document.getElementById(statusId).innerText =
+    document.getElementById(id.replace("File", "Status")).innerText =
       e.target.files.length ? "✔ Uploaded" : "";
   });
 });
 
-/* ---------- GENERATE REPORT ---------- */
+/* ---------- GENERATE ---------- */
 async function generate() {
   const msg = document.getElementById("msg");
   msg.innerText = "";
@@ -91,43 +86,43 @@ async function generate() {
     const uniware = await readFile(uniwareFile);
     const inward = await readFile(binFile, "Inward");
 
-    /* ---------- DEMAND (MP → SKU → Units) ---------- */
+    /* ---------- DEMAND ---------- */
     const demand = {};
     sales.forEach(r => {
       const sku = r["Item SKU Code (Sku Code)"]?.toString().trim();
       const mp = (r["Channel Name (MP)"] || "UNKNOWN").toString().trim();
       if (!sku) return;
 
-      if (!demand[mp]) demand[mp] = {};
+      demand[mp] = demand[mp] || {};
       demand[mp][sku] = (demand[mp][sku] || 0) + 1;
     });
 
-    /* ---------- MASTER STOCK LOGIC ---------- */
+    /* ---------- MASTER STOCK ---------- */
     const stock = {};
 
-    // Step 1: Load Uniware stock as GODOWN stock
+    // Uniware → godown
     uniware.forEach(r => {
       const sku = r["Sku Code"]?.toString().trim();
       const qty = Number(r["Available (ATP)"]);
       if (!sku || qty <= 0) return;
 
-      if (!stock[sku]) stock[sku] = {};
+      stock[sku] = stock[sku] || {};
       stock[sku]["godown"] = (stock[sku]["godown"] || 0) + qty;
     });
 
-    // Step 2: Move inward stock from GODOWN → BIN
+    // Inward → move from godown to bin
     inward.forEach(r => {
       const sku = r["SKU"]?.toString().trim();
       const binId = r["Bin"]?.toString().trim();
       const qty = Number(r["Qty"]);
       if (!sku || !binId || qty <= 0) return;
 
-      if (!stock[sku]) stock[sku] = {};
+      stock[sku] = stock[sku] || {};
       stock[sku]["godown"] = (stock[sku]["godown"] || 0) - qty;
       stock[sku][binId] = (stock[sku][binId] || 0) + qty;
     });
 
-    /* ---------- PICK LIST GENERATION ---------- */
+    /* ---------- PICK LIST ---------- */
     mpData = {};
     let totalUnits = 0;
 
@@ -135,11 +130,11 @@ async function generate() {
       mpData[mp] = [];
 
       for (const sku in demand[mp]) {
-        let required = demand[mp][sku];
+        let need = demand[mp][sku];
         const parsed = parseSku(sku);
         if (!parsed) continue;
 
-        const availableBins = Object.entries(stock[sku] || {})
+        const bins = Object.entries(stock[sku] || {})
           .filter(([_, q]) => q > 0)
           .sort((a, b) => {
             if (a[0] === "godown") return -1;
@@ -147,10 +142,10 @@ async function generate() {
             return a[0].localeCompare(b[0]);
           });
 
-        for (const [binId, qty] of availableBins) {
-          if (required <= 0) break;
+        for (const [binId, qty] of bins) {
+          if (need <= 0) break;
 
-          const pickQty = Math.min(qty, required);
+          const pickQty = Math.min(qty, need);
           mpData[mp].push({
             SKU: sku,
             Style: parsed.style,
@@ -159,7 +154,7 @@ async function generate() {
             Unit: pickQty
           });
 
-          required -= pickQty;
+          need -= pickQty;
           totalUnits += pickQty;
         }
       }
@@ -178,30 +173,27 @@ async function generate() {
     }
 
     buildTabs();
-    msg.innerText = `✅ Report generated successfully | Total Units: ${totalUnits}`;
+    msg.innerText = `✅ Report generated successfully | Units: ${totalUnits}`;
 
   } catch (err) {
     alert(err);
   }
 }
 
-/* ---------- UI FUNCTIONS ---------- */
+/* ---------- UI ---------- */
 function buildTabs() {
-  const mpTabs = document.getElementById("mpTabs");
   mpTabs.innerHTML = "";
-
   const mps = Object.keys(mpData);
-  if (!mps.length) return;
 
-  mps.forEach((mp, index) => {
+  mps.forEach((mp, i) => {
     const tab = document.createElement("div");
-    tab.className = "tab" + (index === 0 ? " active" : "");
+    tab.className = "tab" + (i === 0 ? " active" : "");
     tab.innerText = mp;
     tab.onclick = () => switchMP(mp);
     mpTabs.appendChild(tab);
   });
 
-  switchMP(mps[0]);
+  if (mps.length) switchMP(mps[0]);
 }
 
 function switchMP(mp) {
@@ -214,9 +206,7 @@ function switchMP(mp) {
 }
 
 function render() {
-  const tbody = document.getElementById("tbody");
   tbody.innerHTML = "";
-
   currentView.forEach(r => {
     tbody.innerHTML += `
       <tr>
@@ -233,11 +223,12 @@ function render() {
 /* ---------- EXPORT ---------- */
 function exportExcel() {
   const wb = XLSX.utils.book_new();
-
   for (const mp in mpData) {
-    const ws = XLSX.utils.json_to_sheet(mpData[mp]);
-    XLSX.utils.book_append_sheet(wb, ws, mp.substring(0, 31));
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(mpData[mp]),
+      mp.substring(0, 31)
+    );
   }
-
   XLSX.writeFile(wb, "MP_Wise_Pick_List.xlsx");
 }
