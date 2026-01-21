@@ -1,4 +1,5 @@
-let masterPick = [];
+let mpData = {};
+let activeMP = "";
 let filteredPick = [];
 
 const SIZE_ORDER = [
@@ -32,18 +33,19 @@ async function generate() {
   const demand = {};
   sale.forEach(r => {
     const sku = r["Item SKU Code (Sku Code)"];
-    if (sku) demand[sku] = (demand[sku] || 0) + 1;
+    const mp = r["Channel Name (MP)"] || "UNKNOWN";
+    if (!sku) return;
+    demand[mp] = demand[mp] || {};
+    demand[mp][sku] = (demand[mp][sku] || 0) + 1;
   });
 
   const stock = {};
-
   function addStock(arr, sign) {
     arr.forEach(r => {
       const sku = r["Sku Code"];
       const binId = r["Shelf"];
       const qty = Number(r["Available (ATP)"]) * sign;
       if (!sku || !binId || !qty) return;
-
       stock[sku] = stock[sku] || {};
       stock[sku][binId] = (stock[sku][binId] || 0) + qty;
     });
@@ -52,43 +54,67 @@ async function generate() {
   addStock(uni, 1);
   addStock(bin, -1);
 
-  masterPick = [];
+  mpData = {};
 
-  for (let sku in demand) {
-    let need = demand[sku];
-    const bins = Object.entries(stock[sku] || {})
-      .filter(([_, q]) => q > 0)
-      .sort((a,b)=>{
-        if(a[0].toLowerCase()==="godown") return -1;
-        if(b[0].toLowerCase()==="godown") return 1;
-        return a[0].localeCompare(b[0]);
-      });
+  for (let mp in demand) {
+    mpData[mp] = [];
+    for (let sku in demand[mp]) {
+      let need = demand[mp][sku];
+      const bins = Object.entries(stock[sku] || {})
+        .filter(([_, q]) => q > 0)
+        .sort((a,b)=>{
+          if(a[0].toLowerCase()==="godown") return -1;
+          if(b[0].toLowerCase()==="godown") return 1;
+          return a[0].localeCompare(b[0]);
+        });
 
-    const { style, size } = parseSku(sku);
+      const { style, size } = parseSku(sku);
 
-    for (let [binId, qty] of bins) {
-      if (need <= 0) break;
-      const pick = Math.min(qty, need);
-
-      masterPick.push({
-        SKU: sku,
-        Style: style,
-        Size: size,
-        BIN: binId,
-        Unit: pick
-      });
-
-      need -= pick;
+      for (let [binId, qty] of bins) {
+        if (need <= 0) break;
+        const pick = Math.min(qty, need);
+        mpData[mp].push({
+          SKU: sku,
+          Style: style,
+          Size: size,
+          BIN: binId,
+          Unit: pick
+        });
+        need -= pick;
+      }
     }
+
+    mpData[mp].sort((a,b)=>{
+      if(a.SKU!==b.SKU) return a.SKU.localeCompare(b.SKU);
+      return SIZE_ORDER.indexOf(a.Size) - SIZE_ORDER.indexOf(b.Size);
+    });
   }
 
-  masterPick.sort((a,b)=>{
-    if(a.SKU!==b.SKU) return a.SKU.localeCompare(b.SKU);
-    return SIZE_ORDER.indexOf(a.Size) - SIZE_ORDER.indexOf(b.Size);
+  buildTabs();
+}
+
+function buildTabs() {
+  mpTabs.innerHTML = "";
+  const mps = Object.keys(mpData);
+  if (!mps.length) return;
+
+  mps.forEach((mp,i)=>{
+    const d = document.createElement("div");
+    d.className = "tab" + (i===0 ? " active":"");
+    d.innerText = mp;
+    d.onclick = ()=>switchMP(mp);
+    mpTabs.appendChild(d);
   });
 
-  filteredPick = [...masterPick];
-  render();
+  switchMP(mps[0]);
+}
+
+function switchMP(mp) {
+  activeMP = mp;
+  [...mpTabs.children].forEach(t=>{
+    t.classList.toggle("active", t.innerText===mp);
+  });
+  applyFilters();
 }
 
 function applyFilters() {
@@ -97,7 +123,7 @@ function applyFilters() {
   const sz = fSize.value.toLowerCase();
   const b = fBin.value.toLowerCase();
 
-  filteredPick = masterPick.filter(r =>
+  filteredPick = (mpData[activeMP] || []).filter(r =>
     r.SKU.toLowerCase().includes(s) &&
     r.Style.toLowerCase().includes(st) &&
     r.Size.toLowerCase().includes(sz) &&
@@ -108,7 +134,7 @@ function applyFilters() {
 
 function render() {
   tbody.innerHTML = "";
-  filteredPick.forEach(r => {
+  filteredPick.forEach(r=>{
     tbody.innerHTML += `
       <tr>
         <td>${r.SKU}</td>
@@ -121,9 +147,12 @@ function render() {
 }
 
 function exportExcel() {
-  if (!filteredPick.length) return alert("No data");
-  const ws = XLSX.utils.json_to_sheet(filteredPick);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "PickList");
-  XLSX.writeFile(wb, "Pick_List.xlsx");
+
+  for (let mp in mpData) {
+    const ws = XLSX.utils.json_to_sheet(mpData[mp]);
+    XLSX.utils.book_append_sheet(wb, ws, mp.substring(0,31));
+  }
+
+  XLSX.writeFile(wb, "MP_Wise_Pick_List.xlsx");
 }
