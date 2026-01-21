@@ -1,5 +1,6 @@
 /* =================================================
-   Pick List Generator – FINAL STABLE VERSION
+   Pick List Generator – FINAL STABLE (V1.0)
+   Crash Fix + Header Validation Added
 ================================================= */
 
 let mpData = {};
@@ -48,6 +49,7 @@ const MP_MAP = {
 function readFile(file, sheetName = null) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = e => {
       const wb = XLSX.read(e.target.result, {
         type: file.name.toLowerCase().endsWith(".csv") ? "string" : "binary"
@@ -60,17 +62,33 @@ function readFile(file, sheetName = null) {
           : wb.Sheets[wb.SheetNames[0]];
 
       if (!sheet) {
-        reject(`Sheet "${sheetName}" not found`);
+        reject(`Required sheet "${sheetName}" not found`);
         return;
       }
 
-      resolve(XLSX.utils.sheet_to_json(sheet));
+      resolve(XLSX.utils.sheet_to_json(sheet, { defval: "" }));
     };
 
     file.name.toLowerCase().endsWith(".csv")
       ? reader.readAsText(file)
       : reader.readAsBinaryString(file);
   });
+}
+
+/* ---------- HEADER VALIDATION ---------- */
+function validateHeaders(data, required, fileLabel) {
+  if (!data.length) {
+    throw new Error(`${fileLabel}: File is empty`);
+  }
+
+  const headers = Object.keys(data[0]);
+  const missing = required.filter(h => !headers.includes(h));
+
+  if (missing.length) {
+    throw new Error(
+      `${fileLabel}: Missing required header(s): ${missing.join(", ")}`
+    );
+  }
 }
 
 /* ---------- SKU NORMALIZATION ---------- */
@@ -101,6 +119,11 @@ function normalizeSku(rawSku) {
 
 /* ---------- SORT ---------- */
 function applySort() {
+  if (!Array.isArray(currentView) || currentView.length === 0) {
+    render();
+    return;
+  }
+
   const key = document.getElementById("sortBy").value;
 
   if (!key) {
@@ -130,11 +153,31 @@ async function generate() {
 
   mpData = {};
   shortageData = [];
+  currentView = [];
 
   try {
     const sales = await readFile(saleFile.files[0]);
     const uniware = await readFile(uniwareFile.files[0]);
     const inward = await readFile(binFile.files[0], "Inward");
+
+    /* ----- VALIDATE HEADERS ----- */
+    validateHeaders(
+      sales,
+      ["Item SKU Code (Sku Code)"],
+      "Sale Orders"
+    );
+
+    validateHeaders(
+      uniware,
+      ["Sku Code", "Available (ATP)"],
+      "Uniware Stock"
+    );
+
+    validateHeaders(
+      inward,
+      ["SKU", "Bin", "Qty"],
+      "Bin Data (Inward)"
+    );
 
     /* ---------- DEMAND ---------- */
     const demand = {};
@@ -195,7 +238,7 @@ async function generate() {
             return a[0].localeCompare(b[0]);
           });
 
-        const { style, displaySize } = normalizeSku(sku);
+        const skuInfo = normalizeSku(sku);
 
         for (const [binId, qty] of bins) {
           if (need <= 0) break;
@@ -203,8 +246,8 @@ async function generate() {
 
           mpData[mp].push({
             SKU: sku,
-            Style: style,
-            Size: displaySize,
+            Style: skuInfo.style,
+            Size: skuInfo.displaySize,
             BIN: binId,
             Unit: pick
           });
@@ -224,7 +267,7 @@ async function generate() {
     msg.innerText = "✅ Report generated successfully";
 
   } catch (e) {
-    alert(e);
+    alert(e.message || e);
   }
 }
 
@@ -248,21 +291,28 @@ function buildTabs() {
     mpTabs.appendChild(tab);
   }
 
-  switchTab(Object.keys(mpData)[0]);
+  const first = Object.keys(mpData)[0] || "SHORTAGE";
+  switchTab(first);
 }
 
 function switchTab(tab) {
   activeTab = tab;
+
   document.querySelectorAll(".tab").forEach(t =>
     t.classList.toggle("active", t.innerText === tab)
   );
 
-  currentView = tab === "SHORTAGE" ? shortageData : mpData[tab];
+  currentView = tab === "SHORTAGE"
+    ? shortageData
+    : (mpData[tab] || []);
+
   applySort();
 }
 
 function render() {
   tbody.innerHTML = "";
+
+  if (!Array.isArray(currentView)) return;
 
   currentView.forEach(r => {
     tbody.innerHTML += activeTab === "SHORTAGE"
