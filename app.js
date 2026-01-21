@@ -1,111 +1,128 @@
-let pickList = [];
+let masterPick = [];
+let filteredPick = [];
 
 const SIZE_ORDER = [
   "FS","XS","S","M","L","XL","XXL",
   "3XL","4XL","5XL","6XL","7XL","8XL","9XL","10XL"
 ];
 
-function readExcel(file) {
-  return new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      const workbook = XLSX.read(e.target.result, { type: "binary" });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      resolve(XLSX.utils.sheet_to_json(sheet));
+function readXlsx(file) {
+  return new Promise(res => {
+    const r = new FileReader();
+    r.onload = e => {
+      const wb = XLSX.read(e.target.result, { type: "binary" });
+      const sh = wb.Sheets[wb.SheetNames[0]];
+      res(XLSX.utils.sheet_to_json(sh));
     };
-    reader.readAsBinaryString(file);
+    r.readAsBinaryString(file);
   });
 }
 
 function parseSku(sku) {
-  if (!sku.includes("-")) {
-    return { style: sku, size: "FS" };
-  }
-  const parts = sku.split("-");
-  return { style: parts[0], size: parts[1] || "FS" };
+  if (!sku.includes("-")) return { style: sku, size: "FS" };
+  const [s, z] = sku.split("-");
+  return { style: s, size: z || "FS" };
 }
 
-async function generatePickList() {
-  const orderFile = document.getElementById("orderFile").files[0];
-  const stockFile = document.getElementById("stockFile").files[0];
-  if (!orderFile || !stockFile) return alert("Upload both files");
+async function generate() {
+  const sale = await readXlsx(saleFile.files[0]);
+  const uni = await readXlsx(uniwareFile.files[0]);
+  const bin = await readXlsx(binFile.files[0]);
 
-  const orders = await readExcel(orderFile);
-  const stock = await readExcel(stockFile);
+  const demand = {};
+  sale.forEach(r => {
+    const sku = r["Item SKU Code (Sku Code)"];
+    if (sku) demand[sku] = (demand[sku] || 0) + 1;
+  });
 
-  pickList = [];
+  const stock = {};
 
-  orders.forEach(order => {
-    const sku = order["Sku Code"];
-    let qtyNeeded = Number(order["Order Units"]);
-    if (!sku || qtyNeeded <= 0) return;
+  function addStock(arr, sign) {
+    arr.forEach(r => {
+      const sku = r["Sku Code"];
+      const binId = r["Shelf"];
+      const qty = Number(r["Available (ATP)"]) * sign;
+      if (!sku || !binId || !qty) return;
+
+      stock[sku] = stock[sku] || {};
+      stock[sku][binId] = (stock[sku][binId] || 0) + qty;
+    });
+  }
+
+  addStock(uni, 1);
+  addStock(bin, -1);
+
+  masterPick = [];
+
+  for (let sku in demand) {
+    let need = demand[sku];
+    const bins = Object.entries(stock[sku] || {})
+      .filter(([_, q]) => q > 0)
+      .sort((a,b)=>{
+        if(a[0].toLowerCase()==="godown") return -1;
+        if(b[0].toLowerCase()==="godown") return 1;
+        return a[0].localeCompare(b[0]);
+      });
 
     const { style, size } = parseSku(sku);
 
-    let stockRows = stock
-      .filter(s => s["Sku Code"] === sku && Number(s["Available (ATP)"]) > 0)
-      .sort((a, b) => {
-        if (a["Shelf"].toLowerCase() === "godown") return -1;
-        if (b["Shelf"].toLowerCase() === "godown") return 1;
-        return a["Shelf"].localeCompare(b["Shelf"]);
-      });
+    for (let [binId, qty] of bins) {
+      if (need <= 0) break;
+      const pick = Math.min(qty, need);
 
-    for (let s of stockRows) {
-      if (qtyNeeded <= 0) break;
-
-      const available = Number(s["Available (ATP)"]);
-      const pickQty = Math.min(available, qtyNeeded);
-
-      pickList.push({
+      masterPick.push({
         SKU: sku,
         Style: style,
         Size: size,
-        BIN: s["Shelf"],
-        Unit: pickQty
+        BIN: binId,
+        Unit: pick
       });
 
-      qtyNeeded -= pickQty;
+      need -= pick;
     }
-  });
+  }
 
-  pickList.sort((a, b) => {
-    if (a.SKU !== b.SKU) return a.SKU.localeCompare(b.SKU);
+  masterPick.sort((a,b)=>{
+    if(a.SKU!==b.SKU) return a.SKU.localeCompare(b.SKU);
     return SIZE_ORDER.indexOf(a.Size) - SIZE_ORDER.indexOf(b.Size);
   });
 
-  renderTable();
+  filteredPick = [...masterPick];
+  render();
 }
 
-function renderTable() {
-  const tbody = document.querySelector("#resultTable tbody");
-  tbody.innerHTML = "";
+function applyFilters() {
+  const s = fSku.value.toLowerCase();
+  const st = fStyle.value.toLowerCase();
+  const sz = fSize.value.toLowerCase();
+  const b = fBin.value.toLowerCase();
 
-  pickList.forEach(r => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${r.SKU}</td>
-      <td>${r.Style}</td>
-      <td>${r.Size}</td>
-      <td>${r.BIN}</td>
-      <td>${r.Unit}</td>
-    `;
-    tbody.appendChild(tr);
+  filteredPick = masterPick.filter(r =>
+    r.SKU.toLowerCase().includes(s) &&
+    r.Style.toLowerCase().includes(st) &&
+    r.Size.toLowerCase().includes(sz) &&
+    r.BIN.toLowerCase().includes(b)
+  );
+  render();
+}
+
+function render() {
+  tbody.innerHTML = "";
+  filteredPick.forEach(r => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${r.SKU}</td>
+        <td>${r.Style}</td>
+        <td>${r.Size}</td>
+        <td>${r.BIN}</td>
+        <td>${r.Unit}</td>
+      </tr>`;
   });
 }
 
 function exportExcel() {
-  if (!pickList.length) return alert("No data");
-
-  const ws = XLSX.utils.json_to_sheet(
-    pickList.map(r => ({
-      SKU: r.SKU,
-      "Style ID": r.Style,
-      Size: r.Size,
-      BIN: r.BIN,
-      Unit: r.Unit
-    }))
-  );
-
+  if (!filteredPick.length) return alert("No data");
+  const ws = XLSX.utils.json_to_sheet(filteredPick);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "PickList");
   XLSX.writeFile(wb, "Pick_List.xlsx");
